@@ -75,11 +75,11 @@ jobs:
 
   deploy-skeleton-to-azure:
     name: Build and deploy Pimcore skeleton to Azure
-    uses: TorqIT/pimcore-github-actions-workflows/.github/workflows/deploy-to-azure-container-apps.yml@v7
+    uses: Torq-North/pimcore-github-actions-workflows/.github/workflows/deploy-to-azure-container-apps.yml@v7
     needs: [deploy-azure-changes]
     with:
       ENVIRONMENT: test
-      PROJECT_REPOSITORY: TorqIT/pimcore-skeleton
+      PROJECT_REPOSITORY: Torq-North/pimcore-skeleton
       PROJECT_REPOSITORY_REF: 2025.x-azure
     secrets:
       SERVICE_PRINCIPAL_ID: ${{ secrets.SERVICE_PRINCIPAL_ID }}
