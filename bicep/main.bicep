@@ -14,6 +14,8 @@ param virtualNetworkDatabaseSubnetName string = 'pimcore-database'
 param virtualNetworkDatabaseSubnetAddressSpace string = '10.0.2.0/28'
 param virtualNetworkPrivateEndpointsSubnetName string = 'private-endpoints'
 param virtualNetworkPrivateEndpointsSubnetAddressSpace string = '10.0.5.0/28'
+param virtualNetworkContainerAppsSubnetNatGatewayName string = '${containerAppsEnvironmentName}-nat-gw'
+param virtualNetworkContainerAppsSubnetNatGatewayPublicIpName string = '${virtualNetworkContainerAppsSubnetNatGatewayName}-pip'
 module virtualNetwork 'virtual-network/virtual-network.bicep' = if (fullProvision && virtualNetworkResourceGroupName == resourceGroup().name) {
   name: 'virtual-network'
   params: {
@@ -22,7 +24,10 @@ module virtualNetwork 'virtual-network/virtual-network.bicep' = if (fullProvisio
     virtualNetworkAddressSpace: virtualNetworkAddressSpace
     containerAppsSubnetName: virtualNetworkContainerAppsSubnetName
     containerAppsSubnetAddressSpace:  virtualNetworkContainerAppsSubnetAddressSpace
+    containerAppsSubnetNatGatewayName: virtualNetworkContainerAppsSubnetNatGatewayName
+    containerAppsSubnetNatGatewayPublicIpName: virtualNetworkContainerAppsSubnetNatGatewayPublicIpName
     containerAppsEnvironmentUseWorkloadProfiles: containerAppsEnvironmentUseWorkloadProfiles
+    containerAppsEnvironmentName: containerAppsEnvironmentName
     databaseSubnetAddressSpace: virtualNetworkDatabaseSubnetAddressSpace
     databaseSubnetName: virtualNetworkDatabaseSubnetName
     privateEndpointsSubnetName: virtualNetworkPrivateEndpointsSubnetName
@@ -244,7 +249,7 @@ module database 'database/database.bicep' = if (!skipDatabase) {
     virtualNetworkName: virtualNetworkName
     virtualNetworkResourceGroupName: virtualNetworkResourceGroupName
     virtualNetworkPrivateEndpointsSubnetName: virtualNetworkPrivateEndpointsSubnetName
-    shortTermBackupRetentionDays: databaseBackupRetentionDays
+    shortTermBackupRetentionDays: databaseShortTermBackupRetentionDays
     geoRedundantBackup: databaseGeoRedundantBackup
     privateDnsZoneForDatabaseId: privateDnsZones!.outputs.zoneIdForDatabase
     privateEndpointName: databasePrivateEndpointName
@@ -290,7 +295,28 @@ param pimcoreAdminPasswordSecretName string = 'pimcore-admin-password'
 param phpContainerAppExternal bool = true
 param phpContainerAppName string
 param phpContainerAppImageName string = 'php'
-param phpContainerAppUseProbes bool = false
+// Optional health probes - when none are enabled, Azure's default probes are used
+param phpContainerAppProbePort int = 80
+@allowed(['HTTP', 'HTTPS', 'TCP'])
+param phpContainerAppProbeScheme string = 'HTTP'
+param phpContainerAppProvisionStartupProbe bool = false
+param phpContainerAppStartupProbePath string = '/'
+param phpContainerAppStartupProbeInitialDelaySeconds int = 0
+param phpContainerAppStartupProbePeriodSeconds int = 10
+param phpContainerAppStartupProbeFailureThreshold int = 3
+param phpContainerAppStartupProbeTimeoutSeconds int = 1
+param phpContainerAppProvisionLivenessProbe bool = false
+param phpContainerAppLivenessProbePath string = '/'
+param phpContainerAppLivenessProbeInitialDelaySeconds int = 0
+param phpContainerAppLivenessProbePeriodSeconds int = 10
+param phpContainerAppLivenessProbeFailureThreshold int = 3
+param phpContainerAppLivenessProbeTimeoutSeconds int = 1
+param phpContainerAppProvisionReadinessProbe bool = false
+param phpContainerAppReadinessProbePath string = '/'
+param phpContainerAppReadinessProbeInitialDelaySeconds int = 0
+param phpContainerAppReadinessProbePeriodSeconds int = 10
+param phpContainerAppReadinessProbeFailureThreshold int = 3
+param phpContainerAppReadinessProbeTimeoutSeconds int = 1
 param phpContainerAppCustomDomains array = []
 param phpContainerAppCpuCores string = '1.5'
 param phpContainerAppMemory string = '3Gi'
@@ -305,16 +331,42 @@ param phpContainerAppCronScaleRuleDesiredReplicas int = 1
 param phpContainerAppCronScaleRuleStartSchedule string = ''
 param phpContainerAppCronScaleRuleEndSchedule string = ''
 param phpContainerAppCronScaleRuleTimezone string = ''
+param phpContainerAppResponseTimeAlertThreshold int = 5000
+param phpContainerAppResponseTimeAlertTimeWindow string = 'PT5M'
 // Supervisord Container App
 param supervisordContainerAppName string
 param supervisordContainerAppImageName string = 'supervisord'
 param supervisordContainerAppCpuCores string = '1'
 param supervisordContainerAppMemory string = '2Gi'
+param supervisordContainerAppInternalIngress bool = false
 // Redis Container App
 param redisContainerAppName string
 param redisContainerAppCpuCores string = '0.25'
 param redisContainerAppMemory string = '0.5Gi'
 param redisContainerAppMaxMemorySetting string = '256mb'
+// Optional (until v3) Opensearch Container App
+param provisionOpensearch bool = false
+param opensearchContainerAppName string = ''
+param opensearchContainerAppCpuCores string = '0.5'
+param opensearchContainerAppMemory string = '1Gi'
+param opensearchContainerAppMinReplicas int = 1
+param opensearchContainerAppMaxReplicas int = 1
+param opensearchContainerAppsEnvironmentStorageMountName string = 'opensearch-storage'
+param opensearchStorageAccountFileShareName string = 'opensearch'
+param opensearchContainerAppVolumeName string = 'opensearch-storage'
+param opensearchContainerAppJavaOpts string = '-Xms512m -Xmx512m'
+param opensearchContainerAppAutoCreateIndex bool = false
+// Optional (until v3) Mercure Container App
+param provisionMercure bool = false
+param mercureContainerAppName string = ''
+param mercureContainerAppCpuCores string = '0.25'
+param mercureContainerAppMemory string = '0.5Gi'
+param mercureContainerAppMinReplicas int = 1
+param mercureContainerAppMaxReplicas int = 1
+param mercureJwtSecretNameInKeyVault string = 'mercure-jwt'
+param mercureContainerAppsEnvironmentStorageMountName string = 'mercure-storage'
+param mercureStorageAccountFileShareName string = 'mercure'
+param mercureContainerAppVolumeName string = 'mercure-storage'
 // Symfony/Pimcore runtime variables
 @allowed(['0', '1'])
 param appDebug string
@@ -352,6 +404,7 @@ module containerApps 'container-apps/container-apps.bicep' = {
     managedIdentityName: containerAppsManagedIdentityName
     databaseName: databaseName
     databasePasswordSecretNameInKeyVault: databasePasswordSecretName
+    databasePassword: keyVault.getSecret(databasePasswordSecretName)
     databaseServerName: databaseServerName
     databaseServerVersion: databaseServerVersion
     databaseUser: databaseAdminUsername
@@ -369,7 +422,26 @@ module containerApps 'container-apps/container-apps.bicep' = {
     phpContainerAppCpuCores: phpContainerAppCpuCores
     phpContainerAppMemory: phpContainerAppMemory
     phpContainerAppExternal: phpContainerAppExternal
-    phpContainerAppUseProbes: phpContainerAppUseProbes
+    phpContainerAppProvisionStartupProbe: phpContainerAppProvisionStartupProbe
+    phpContainerAppStartupProbePath: phpContainerAppStartupProbePath
+    phpContainerAppStartupProbeInitialDelaySeconds: phpContainerAppStartupProbeInitialDelaySeconds
+    phpContainerAppStartupProbePeriodSeconds: phpContainerAppStartupProbePeriodSeconds
+    phpContainerAppStartupProbeFailureThreshold: phpContainerAppStartupProbeFailureThreshold
+    phpContainerAppStartupProbeTimeoutSeconds: phpContainerAppStartupProbeTimeoutSeconds
+    phpContainerAppProvisionLivenessProbe: phpContainerAppProvisionLivenessProbe
+    phpContainerAppLivenessProbePath: phpContainerAppLivenessProbePath
+    phpContainerAppLivenessProbeInitialDelaySeconds: phpContainerAppLivenessProbeInitialDelaySeconds
+    phpContainerAppLivenessProbePeriodSeconds: phpContainerAppLivenessProbePeriodSeconds
+    phpContainerAppLivenessProbeFailureThreshold: phpContainerAppLivenessProbeFailureThreshold
+    phpContainerAppLivenessProbeTimeoutSeconds: phpContainerAppLivenessProbeTimeoutSeconds
+    phpContainerAppProvisionReadinessProbe: phpContainerAppProvisionReadinessProbe
+    phpContainerAppReadinessProbePath: phpContainerAppReadinessProbePath
+    phpContainerAppReadinessProbeInitialDelaySeconds: phpContainerAppReadinessProbeInitialDelaySeconds
+    phpContainerAppReadinessProbePeriodSeconds: phpContainerAppReadinessProbePeriodSeconds
+    phpContainerAppReadinessProbeFailureThreshold: phpContainerAppReadinessProbeFailureThreshold
+    phpContainerAppReadinessProbeTimeoutSeconds: phpContainerAppReadinessProbeTimeoutSeconds
+    phpContainerAppProbePort: phpContainerAppProbePort
+    phpContainerAppProbeScheme: phpContainerAppProbeScheme
     phpContainerAppMinReplicas: phpContainerAppMinReplicas
     phpContainerAppMaxReplicas: phpContainerAppMaxReplicas
     phpContainerAppIpSecurityRestrictions: phpContainerAppIpSecurityRestrictions
@@ -388,6 +460,7 @@ module containerApps 'container-apps/container-apps.bicep' = {
     supervisordContainerAppImageName: supervisordContainerAppImageName
     supervisordContainerAppCpuCores: supervisordContainerAppCpuCores
     supervisordContainerAppMemory: supervisordContainerAppMemory
+    supervisordContainerAppInternalIngress: supervisordContainerAppInternalIngress
     virtualNetworkName: virtualNetworkName
     virtualNetworkSubnetName: virtualNetworkContainerAppsSubnetName
     virtualNetworkResourceGroup: virtualNetworkResourceGroupName
@@ -396,6 +469,8 @@ module containerApps 'container-apps/container-apps.bicep' = {
     provisionMetricAlerts: provisionMetricAlerts
     generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
     criticalMetricAlertsActionGroupName: criticalMetricAlertsActionGroupName
+    phpContainerAppResponseTimeAlertThreshold: phpContainerAppResponseTimeAlertThreshold
+    phpContainerAppResponseTimeAlertTimeWindow: phpContainerAppResponseTimeAlertTimeWindow
 
     // Optional scaling rules
     phpContainerAppProvisionHttpScaleRule: phpContainerAppProvisionHttpScaleRule
@@ -405,6 +480,31 @@ module containerApps 'container-apps/container-apps.bicep' = {
     phpContainerAppCronScaleRuleStartSchedule: phpContainerAppCronScaleRuleStartSchedule
     phpContainerAppCronScaleRuleEndSchedule: phpContainerAppCronScaleRuleEndSchedule
     phpContainerAppCronScaleRuleTimezone: phpContainerAppCronScaleRuleTimezone
+    
+    // Optional (until v3) Opensearch provisioning
+    provisionOpensearch: provisionOpensearch
+    opensearchContainerAppName: opensearchContainerAppName
+    opensearchContainerAppCpuCores: opensearchContainerAppCpuCores
+    opensearchContainerAppMemory: opensearchContainerAppMemory
+    opensearchContainerAppMinReplicas: opensearchContainerAppMinReplicas
+    opensearchContainerAppMaxReplicas: opensearchContainerAppMaxReplicas
+    opensearchContainerAppsEnvironmentStorageMountName: opensearchContainerAppsEnvironmentStorageMountName
+    opensearchStorageAccountFileShareName: opensearchStorageAccountFileShareName
+    opensearchContainerAppVolumeName: opensearchContainerAppVolumeName
+    opensearchContainerAppJavaOpts: opensearchContainerAppJavaOpts
+    opensearchContainerAppAutoCreateIndex: opensearchContainerAppAutoCreateIndex
+
+    // Optional (until v3) Mercure provisioning
+    provisionMercure: provisionMercure
+    mercureContainerAppName: mercureContainerAppName
+    mercureContainerAppCpuCores: mercureContainerAppCpuCores
+    mercureContainerAppMemory: mercureContainerAppMemory
+    mercureContainerAppMinReplicas: mercureContainerAppMinReplicas
+    mercureContainerAppMaxReplicas: mercureContainerAppMaxReplicas
+    mercureJwtSecretNameInKeyVault: mercureJwtSecretNameInKeyVault
+    mercureContainerAppsEnvironmentStorageMountName: mercureContainerAppsEnvironmentStorageMountName
+    mercureStorageAccountFileShareName: mercureStorageAccountFileShareName
+    mercureContainerAppVolumeName: mercureContainerAppVolumeName
 
     // Optional Portal Engine provisioning
     provisionForPortalEngine: provisionForPortalEngine
@@ -437,6 +537,8 @@ module containerApps 'container-apps/container-apps.bicep' = {
     n8nContainerAppCronScaleRuleEndSchedule: n8nContainerAppCronScaleRuleEndSchedule
     n8nContainerAppCronScaleRuleStartSchedule: n8nContainerAppCronScaleRuleStartSchedule
     n8nContainerAppCronScaleRuleTimezone: n8nContainerAppCronScaleRuleTimezone
+    n8nContainerAppResponseTimeAlertThreshold: n8nContainerAppResponseTimeAlertThreshold
+    n8nContainerAppResponseTimeAlertTimeWindow: n8nContainerAppResponseTimeAlertTimeWindow
   }
 }
 
@@ -528,9 +630,11 @@ param n8nDatabaseBackupRetentionDays int = 7
 param n8nVirtualNetworkDatabaseSubnetName string = 'postgres'
 param n8nVirtualNetworkDatabaseSubnetAddressSpace string = '10.0.4.0/28'
 param n8nWebhookUrl string = ''
+param n8nContainerAppResponseTimeAlertThreshold int = 5000
+param n8nContainerAppResponseTimeAlertTimeWindow string = 'PT5M'
 module n8n './n8n/n8n.bicep' = if (fullProvision && provisionN8N) {
   name: 'n8n'
-  dependsOn: [virtualNetwork]
+  dependsOn: [virtualNetwork, generalMetricAlertsActionGroup, criticalMetricAlertsActionGroup]
   params: {
     // Note that the n8n Container App is provisioned above as part of the containerApps module
     location: location
@@ -552,6 +656,11 @@ module n8n './n8n/n8n.bicep' = if (fullProvision && provisionN8N) {
     virtualNetworkResourceGroupName: virtualNetworkResourceGroupName
     virtualNetworkContainerAppsSubnetName: virtualNetworkContainerAppsSubnetName
     virtualNetworkDatabaseSubnetName: n8nVirtualNetworkDatabaseSubnetName
+
+    // Optional metric alerts
+    provisionMetricAlerts: provisionMetricAlerts
+    generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
+    criticalMetricAlertsActionGroupName: criticalMetricAlertsActionGroupName
   }
 }
 

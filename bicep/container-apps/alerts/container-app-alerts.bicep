@@ -1,12 +1,11 @@
 param containerAppName string
 param generalMetricAlertsActionGroupName string
 
-module memoryAlerts './container-app-memory-alerts.bicep' = {
-  name: '${containerAppName}-memory-alerts'
-  params: {
-    containerAppName: containerAppName
-    generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
-  }
+param responseTimeAlertThreshold int
+param responseTimeAlertTimeWindow string
+
+resource containerApp 'Microsoft.App/containerApps@2024-03-01' existing = {
+  name: containerAppName
 }
 
 module replicaRestartAlerts './container-app-restarts-alerts.bicep' = {
@@ -14,5 +13,16 @@ module replicaRestartAlerts './container-app-restarts-alerts.bicep' = {
   params: {
     containerAppName: containerAppName
     generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
+  }
+}
+
+module responseTimeAlert './container-app-response-time-alert.bicep' = {
+  name: '${containerAppName}-response-time-alert'
+  params: {
+    containerAppName: containerAppName
+    generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
+    threshold: responseTimeAlertThreshold
+    alertTimeWindow: responseTimeAlertTimeWindow
+    ingressEnabled: containerApp.properties.configuration.?ingress != null
   }
 }

@@ -11,11 +11,11 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing 
   scope: resourceGroup()
 }
 
-resource backupVault 'Microsoft.DataProtection/backupVaults@2022-09-01-preview' existing = {
+resource backupVault 'Microsoft.DataProtection/backupVaults@2022-12-01' existing = {
   name: backupVaultName
 }
 
-resource policy 'Microsoft.DataProtection/backupVaults/backupPolicies@2022-09-01-preview' = {
+resource policy 'Microsoft.DataProtection/backupVaults/backupPolicies@2022-12-01' = {
   parent: backupVault
   name: 'storage-account-backup-policy'
   properties: {
@@ -54,7 +54,7 @@ resource policy 'Microsoft.DataProtection/backupVaults/backupPolicies@2022-09-01
           schedule: {
             repeatingTimeIntervals: [
                 // This does not seem to function without a "start" date, so we place an arbitrary one here
-                'R/2023-07-01T00:00:00+00:00/P1M'
+                'R/2023-07-01T00:00:00+00:00/P1D'
             ]
             timeZone: 'UTC'
           }
@@ -93,7 +93,7 @@ resource backupVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022
   }
 }
 
-resource instance 'Microsoft.DataProtection/backupVaults/backupInstances@2023-01-01' = {
+resource instance 'Microsoft.DataProtection/backupVaults/backupInstances@2023-05-01' = {
   parent: backupVault
   name: 'storage-account-backup-instance'
   dependsOn: [backupVaultRoleAssignment]

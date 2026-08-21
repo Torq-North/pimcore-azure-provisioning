@@ -108,6 +108,31 @@ var databasePasswordSecret = {
   identity: managedIdentityForKeyVaultId
 }
 
+var probes = [
+  {
+    type: 'Startup'
+    httpGet: { scheme: 'HTTP', port: 5678, path: '/healthz' }
+    initialDelaySeconds: 1
+    periodSeconds: 5
+    failureThreshold: 30
+    timeoutSeconds: 3
+  }
+  {
+    type: 'Liveness'
+    httpGet: { scheme: 'HTTP', port: 5678, path: '/healthz/readiness' }
+    periodSeconds: 10
+    failureThreshold: 3
+    timeoutSeconds: 5
+  }
+  {
+    type: 'Readiness'
+    httpGet: { scheme: 'HTTP', port: 5678, path: '/healthz/readiness' }
+    periodSeconds: 5
+    failureThreshold: 6
+    timeoutSeconds: 5
+  }
+]
+
 module scaleRules './scale-rules/container-app-scale-rules.bicep' = {
   name: 'container-app-scale-rules'
   params: {
@@ -151,7 +176,7 @@ resource n8nContainerApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
       containers: [
         {
           name: 'n8n'
-          image: 'n8nio/n8n:latest'
+          image: 'n8nio/n8n:1.123.72'
           resources: {
             cpu: json(cpuCores)
             memory: memory
@@ -163,6 +188,7 @@ resource n8nContainerApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
               volumeName: volumeName
             }
           ]
+          probes: probes
         }
       ]
       volumes: [

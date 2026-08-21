@@ -3,24 +3,51 @@ param location string = resourceGroup().location
 param containerAppsEnvironmentName string
 param containerAppName string
 param imageName string
-param environmentVariables array
+param defaultEnvVars array
 param containerRegistryName string
 param customDomains array
 param cpuCores string
 param memory string
-param useProbes bool
+param provisionStartupProbe bool
+param startupProbePath string
+param startupProbeInitialDelaySeconds int
+param startupProbePeriodSeconds int
+param startupProbeFailureThreshold int
+param startupProbeTimeoutSeconds int
+param provisionLivenessProbe bool
+param livenessProbePath string
+param livenessProbeInitialDelaySeconds int
+param livenessProbePeriodSeconds int
+param livenessProbeFailureThreshold int
+param livenessProbeTimeoutSeconds int
+param provisionReadinessProbe bool
+param readinessProbePath string
+param readinessProbeInitialDelaySeconds int
+param readinessProbePeriodSeconds int
+param readinessProbeFailureThreshold int
+param readinessProbeTimeoutSeconds int
+param probePort int
+param probeScheme string
 param minReplicas int
 param maxReplicas int
 param ipSecurityRestrictions array
 param managedIdentityId string
 param isExternal bool
 
-@secure()
+param keyVaultName string
+
 param databasePasswordSecret object
+@secure()
+param databaseUrlSecret object
 @secure()
 param storageAccountKeySecret object
 param additionalSecrets array
 param additionalVolumesAndMounts array
+
+// Optional (until v3) mercure Container App
+param provisionMercure bool
+param mercureContainerAppName string
+param mercureJwtSecretNameInKeyVault string
 
 // Optional Portal Engine provisioning
 param provisionForPortalEngine bool
@@ -47,10 +74,35 @@ resource certificates 'Microsoft.App/managedEnvironments/managedCertificates@202
   name: customDomain.certificateName
 }]
 
+// Environment variables
+resource mercureContainerApp 'Microsoft.App/containerApps@2026-01-01' existing = if (provisionMercure) {
+  name: mercureContainerAppName
+}
+var mercureEnvVars = provisionMercure ? [
+  {
+    name: 'MERCURE_URL_SERVER'
+    value: 'https://${mercureContainerApp!.properties.configuration.ingress.fqdn}/.well-known/mercure'
+  }
+] : []
+var environmentVariables = concat(defaultEnvVars, mercureEnvVars)
+
 // Secrets
-var defaultSecrets = [databasePasswordSecret, storageAccountKeySecret]
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+var defaultSecrets = [databasePasswordSecret, databaseUrlSecret, storageAccountKeySecret]
 var portalEngineSecrets = provisionForPortalEngine ? [portalEngineStorageAccountKeySecret] : []
-var secrets = concat(defaultSecrets, portalEngineSecrets, additionalSecrets)
+resource mercureJwtSecretInKeyVault 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = if (provisionMercure) {
+  parent: keyVault
+  name: mercureJwtSecretNameInKeyVault
+}
+var mercureJwtSecret = (provisionMercure) ? {
+  name: 'mercure-jwt-key'
+  keyVaultUrl: mercureJwtSecretInKeyVault!.properties.secretUri
+  identity: managedIdentityId
+} : {}
+var mercureSecrets = provisionMercure ? [mercureJwtSecret] : []
+var secrets = concat(defaultSecrets, portalEngineSecrets, mercureSecrets, additionalSecrets)
 
 // Volumes
 module volumesModule './container-apps-volumes.bicep' = {
@@ -59,6 +111,33 @@ module volumesModule './container-apps-volumes.bicep' = {
     provisionForPortalEngine: provisionForPortalEngine
     portalEnginePublicBuildStorageMountName: portalEnginePublicBuildStorageMountName
     additionalVolumesAndMounts: additionalVolumesAndMounts
+  }
+}
+
+// Health probes
+module probesModule './container-app-probes.bicep' = {
+  name: 'container-app-php-probes'
+  params: {
+    provisionStartupProbe: provisionStartupProbe
+    startupProbePath: startupProbePath
+    startupProbeInitialDelaySeconds: startupProbeInitialDelaySeconds
+    startupProbePeriodSeconds: startupProbePeriodSeconds
+    startupProbeFailureThreshold: startupProbeFailureThreshold
+    startupProbeTimeoutSeconds: startupProbeTimeoutSeconds
+    provisionLivenessProbe: provisionLivenessProbe
+    livenessProbePath: livenessProbePath
+    livenessProbeInitialDelaySeconds: livenessProbeInitialDelaySeconds
+    livenessProbePeriodSeconds: livenessProbePeriodSeconds
+    livenessProbeFailureThreshold: livenessProbeFailureThreshold
+    livenessProbeTimeoutSeconds: livenessProbeTimeoutSeconds
+    provisionReadinessProbe: provisionReadinessProbe
+    readinessProbePath: readinessProbePath
+    readinessProbeInitialDelaySeconds: readinessProbeInitialDelaySeconds
+    readinessProbePeriodSeconds: readinessProbePeriodSeconds
+    readinessProbeFailureThreshold: readinessProbeFailureThreshold
+    readinessProbeTimeoutSeconds: readinessProbeTimeoutSeconds
+    probePort: probePort
+    probeScheme: probeScheme
   }
 }
 
@@ -138,8 +217,8 @@ var digiCertIpAllowances array = [
 // If the app is external with ingress restrictions applied, we need to allow the DigiCert IPs above in order for managed certificates 
 // to be automatically deployed. If no rules are defined or the app is not externally accessible, we must not set any 
 // rules at all (i.e. ingress should be unrestricted).
-var ipSecurityRestrictionsConsolidated = (!empty(ipSecurityRestrictions) && isExternal) 
-  ? concat(ipSecurityRestrictions, digiCertIpAllowances)
+var ipSecurityRestrictionsConsolidated = (!empty(ipSecurityRestrictions) && isExternal)
+  ? (ipSecurityRestrictions[0].action == 'Allow' ? concat(ipSecurityRestrictions, digiCertIpAllowances) : ipSecurityRestrictions)
   : null
 
 resource phpContainerApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
@@ -194,23 +273,8 @@ resource phpContainerApp 'Microsoft.App/containerApps@2024-10-02-preview' = {
             cpu: json(cpuCores)
             memory: memory
           }
-          probes: useProbes ? [
-            { 
-              type: 'Startup'
-              httpGet: {
-                port: 80
-                path: '/'
-              }
-            }
-            { 
-              type: 'Liveness'
-              httpGet: {
-                port: 80
-                path: '/'
-              }
-            }
-          ]: []
           volumeMounts: volumesModule.outputs.volumeMounts
+          probes: length(probesModule.outputs.probes) > 0 ? probesModule.outputs.probes : null
         }
       ]
       volumes: volumesModule.outputs.volumes

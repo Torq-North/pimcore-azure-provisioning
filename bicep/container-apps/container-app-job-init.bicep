@@ -30,6 +30,7 @@ param runPimcoreInstall bool
 param storageAccountKeySecret object
 
 param databasePasswordSecret object
+param databaseUrlSecret object
 param pimcoreAdminPasswordSecretName string
 
 param managedIdentityId string
@@ -42,9 +43,6 @@ param portalEngineStorageAccountKeySecret object
 
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2022-11-01-preview' existing = {
   name: containerAppsEnvironmentName
-}
-resource database 'Microsoft.DBforMySQL/flexibleServers@2021-12-01-preview' existing = {
-  name: databaseServerName
 }
 
 // Secrets
@@ -60,7 +58,7 @@ var adminPasswordSecret = {
   keyVaultUrl: pimcoreAdminPasswordInKeyVault.properties.secretUri
   identity: managedIdentityId
 }
-var defaultSecrets = [databasePasswordSecret, storageAccountKeySecret, adminPasswordSecret]
+var defaultSecrets = [databasePasswordSecret, databaseUrlSecret, storageAccountKeySecret, adminPasswordSecret]
 var portalEngineSecrets = provisionForPortalEngine ? [portalEngineStorageAccountKeySecret] : []
 var secrets = concat(defaultSecrets, additionalSecrets, portalEngineSecrets)
 
@@ -80,7 +78,7 @@ var initEnvVars = [
   }
   {
     name: 'PIMCORE_INSTALL_MYSQL_HOST_SOCKET'
-    value: database.properties.fullyQualifiedDomainName
+    value: '${databaseServerName}.mysql.database.azure.com'
   }
   {
     name: 'PIMCORE_INSTALL_MYSQL_PORT'
@@ -107,8 +105,20 @@ var initEnvVars = [
     value: 'admin'
   }
   {
+    name: 'PIMCORE_ADMIN_USER'
+    value: 'admin'
+  }
+  {
     name: 'PIMCORE_INSTALL_ADMIN_PASSWORD'
     secretRef: 'admin-psswd'
+  }
+  {
+    name: 'PIMCORE_ADMIN_PASSWORD'
+    secretRef: 'admin-psswd'
+  }
+  {
+    name: 'PIMCORE_INSTALL_MYSQL_FLAGS'
+    value: '--ssl-ca=/var/www/html/config/db/DigiCertGlobalRootCA.crt.pem'
   }
 ]
 var envVars = concat(defaultEnvVars, initEnvVars)

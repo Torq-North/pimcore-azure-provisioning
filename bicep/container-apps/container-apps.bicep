@@ -16,6 +16,8 @@ param keyVaultName string
 param databaseServerName string
 param databaseServerVersion string
 param databasePasswordSecretNameInKeyVault string
+@secure()
+param databasePassword string
 
 param containerRegistryName string
 
@@ -38,7 +40,26 @@ param phpContainerAppExternal bool
 param phpContainerAppCustomDomains array
 param phpContainerAppName string
 param phpContainerAppImageName string
-param phpContainerAppUseProbes bool
+param phpContainerAppProvisionStartupProbe bool
+param phpContainerAppStartupProbePath string
+param phpContainerAppStartupProbeInitialDelaySeconds int
+param phpContainerAppStartupProbePeriodSeconds int
+param phpContainerAppStartupProbeFailureThreshold int
+param phpContainerAppStartupProbeTimeoutSeconds int
+param phpContainerAppProvisionLivenessProbe bool
+param phpContainerAppLivenessProbePath string
+param phpContainerAppLivenessProbeInitialDelaySeconds int
+param phpContainerAppLivenessProbePeriodSeconds int
+param phpContainerAppLivenessProbeFailureThreshold int
+param phpContainerAppLivenessProbeTimeoutSeconds int
+param phpContainerAppProvisionReadinessProbe bool
+param phpContainerAppReadinessProbePath string
+param phpContainerAppReadinessProbeInitialDelaySeconds int
+param phpContainerAppReadinessProbePeriodSeconds int
+param phpContainerAppReadinessProbeFailureThreshold int
+param phpContainerAppReadinessProbeTimeoutSeconds int
+param phpContainerAppProbePort int
+param phpContainerAppProbeScheme string
 param phpContainerAppCpuCores string
 param phpContainerAppMemory string
 param phpContainerAppMinReplicas int
@@ -57,6 +78,7 @@ param supervisordContainerAppName string
 param supervisordContainerAppImageName string
 param supervisordContainerAppCpuCores string
 param supervisordContainerAppMemory string
+param supervisordContainerAppInternalIngress bool
 
 param redisContainerAppName string
 param redisContainerAppCpuCores string
@@ -79,6 +101,8 @@ param additionalVolumesAndMounts array
 param provisionMetricAlerts bool
 param generalMetricAlertsActionGroupName string
 param criticalMetricAlertsActionGroupName string
+param phpContainerAppResponseTimeAlertThreshold int
+param phpContainerAppResponseTimeAlertTimeWindow string
 
 // Optional Portal Engine provisioning
 param provisionForPortalEngine bool
@@ -86,6 +110,31 @@ param portalEngineStorageAccountName string
 param portalEngineStorageAccountPublicBuildFileShareName string
 param portalEnginePublicBuildStorageMountName string
 param portalEngineStorageAccountDownloadsContainerName string
+
+// Optional (until v3) Opensearch Container App
+param provisionOpensearch bool
+param opensearchContainerAppName string
+param opensearchContainerAppCpuCores string
+param opensearchContainerAppMemory string
+param opensearchContainerAppMinReplicas int
+param opensearchContainerAppMaxReplicas int
+param opensearchContainerAppsEnvironmentStorageMountName string
+param opensearchStorageAccountFileShareName string
+param opensearchContainerAppVolumeName string
+param opensearchContainerAppJavaOpts string
+param opensearchContainerAppAutoCreateIndex bool
+
+// Optional (until v3) Mercure Container App
+param provisionMercure bool
+param mercureContainerAppName string
+param mercureContainerAppCpuCores string
+param mercureContainerAppMemory string
+param mercureContainerAppMinReplicas int
+param mercureContainerAppMaxReplicas int
+param mercureJwtSecretNameInKeyVault string
+param mercureContainerAppsEnvironmentStorageMountName string
+param mercureStorageAccountFileShareName string
+param mercureContainerAppVolumeName string
 
 // Optional n8n Container App
 param provisionN8N bool
@@ -111,6 +160,8 @@ param n8nContainerAppCronScaleRuleDesiredReplicas int
 param n8nContainerAppCronScaleRuleStartSchedule string
 param n8nContainerAppCronScaleRuleEndSchedule string
 param n8nContainerAppCronScaleRuleTimezone string
+param n8nContainerAppResponseTimeAlertThreshold int
+param n8nContainerAppResponseTimeAlertTimeWindow string
 
 // ENVIRONMENT
 resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
@@ -158,6 +209,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
 }
 // Set up common secrets for the init, PHP and supervisord Container Apps 
 var databasePasswordSecretRefName = 'database-password'
+var databaseUrlSecretRefName = 'database-url'
 var portalEngineStorageAccountSecretRefName = 'portal-engine-storage-account-key'
 var storageAccountKeySecretRefName = 'storage-account-key'
 resource storageAccount 'Microsoft.Storage/storageAccounts@2022-09-01' existing = {
@@ -175,6 +227,10 @@ var databasePasswordSecret = {
   name: databasePasswordSecretRefName
   keyVaultUrl: databasePasswordSecretInKeyVault.properties.secretUri
   identity: managedIdentity.id
+}
+var databaseUrlSecret = {
+  name: databaseUrlSecretRefName
+  value: 'mysql://${databaseUser}:${databasePassword}@${databaseServerName}.mysql.database.azure.com:3306/${databaseName}?ssl-ca=/var/www/html/config/db/DigiCertGlobalRootCA.crt.pem'
 }
 // Optional additional secrets, assumed to exist in Key Vault
 module additionalSecretsModule './secrets/container-apps-additional-secrets.bicep' = {
@@ -198,6 +254,7 @@ var portalEngineStorageAccountKeySecret = (provisionForPortalEngine) ? {
 // Set up common environment variables for the init, PHP and supervisord Container Apps
 module environmentVariables 'container-apps-env-variables.bicep' = {
   name: 'environment-variables'
+  dependsOn: provisionOpensearch ? [opensearchContainerApp] : []
   params: {
     appDebug: appDebug
     appEnv: appEnv
@@ -206,11 +263,14 @@ module environmentVariables 'container-apps-env-variables.bicep' = {
     databaseName: databaseName
     databaseUser: databaseUser
     databasePasswordSecretRefName: databasePasswordSecretRefName
+    databaseUrlSecretRefName: databaseUrlSecretRefName
     pimcoreDevMode: pimcoreDevMode
     pimcoreEnvironment: pimcoreEnvironment
     redisHost: redisContainerAppName
     redisDb: redisDb
     redisSessionDb: redisSessionDb
+    provisionOpensearch: provisionOpensearch
+    opensearchContainerAppName: opensearchContainerAppName
     storageAccountName: storageAccountName
     storageAccountContainerName: storageAccountContainerName
     storageAccountAssetsContainerName: storageAccountAssetsContainerName
@@ -240,6 +300,7 @@ module initContainerAppJob 'container-app-job-init.bicep' = if (provisionInit) {
     containerRegistryName: containerRegistryName
     storageAccountKeySecret: storageAccountKeySecret
     databasePasswordSecret: databasePasswordSecret
+    databaseUrlSecret: databaseUrlSecret
     defaultEnvVars: environmentVariables.outputs.envVars
     databaseServerName: databaseServerName
     databaseName: databaseName
@@ -260,27 +321,53 @@ module initContainerAppJob 'container-app-job-init.bicep' = if (provisionInit) {
 
 module phpContainerApp 'container-app-php.bicep' = {
   name: 'php-container-app'
-  dependsOn: [containerAppsEnvironment]
+  dependsOn: provisionMercure ? [mercureContainerApp, containerAppsEnvironment] : [containerAppsEnvironment]
   params: {
     location: location
     containerAppsEnvironmentName: containerAppsEnvironmentName
     containerAppName: phpContainerAppName
     imageName: phpContainerAppImageName
-    environmentVariables: environmentVariables.outputs.envVars
+    defaultEnvVars: environmentVariables.outputs.envVars
     containerRegistryName: containerRegistryName
     cpuCores: phpContainerAppCpuCores
     memory: phpContainerAppMemory
-    useProbes: phpContainerAppUseProbes
+    provisionStartupProbe: phpContainerAppProvisionStartupProbe
+    startupProbePath: phpContainerAppStartupProbePath
+    startupProbeInitialDelaySeconds: phpContainerAppStartupProbeInitialDelaySeconds
+    startupProbePeriodSeconds: phpContainerAppStartupProbePeriodSeconds
+    startupProbeFailureThreshold: phpContainerAppStartupProbeFailureThreshold
+    startupProbeTimeoutSeconds: phpContainerAppStartupProbeTimeoutSeconds
+    provisionLivenessProbe: phpContainerAppProvisionLivenessProbe
+    livenessProbePath: phpContainerAppLivenessProbePath
+    livenessProbeInitialDelaySeconds: phpContainerAppLivenessProbeInitialDelaySeconds
+    livenessProbePeriodSeconds: phpContainerAppLivenessProbePeriodSeconds
+    livenessProbeFailureThreshold: phpContainerAppLivenessProbeFailureThreshold
+    livenessProbeTimeoutSeconds: phpContainerAppLivenessProbeTimeoutSeconds
+    provisionReadinessProbe: phpContainerAppProvisionReadinessProbe
+    readinessProbePath: phpContainerAppReadinessProbePath
+    readinessProbeInitialDelaySeconds: phpContainerAppReadinessProbeInitialDelaySeconds
+    readinessProbePeriodSeconds: phpContainerAppReadinessProbePeriodSeconds
+    readinessProbeFailureThreshold: phpContainerAppReadinessProbeFailureThreshold
+    readinessProbeTimeoutSeconds: phpContainerAppReadinessProbeTimeoutSeconds
+    probePort: phpContainerAppProbePort
+    probeScheme: phpContainerAppProbeScheme
     minReplicas: phpContainerAppMinReplicas
     maxReplicas: phpContainerAppMaxReplicas
     customDomains: phpContainerAppCustomDomains
     isExternal: phpContainerAppExternal
     ipSecurityRestrictions: phpContainerAppIpSecurityRestrictions
+    keyVaultName: keyVaultName
     managedIdentityId: managedIdentity.id
     databasePasswordSecret: databasePasswordSecret
+    databaseUrlSecret: databaseUrlSecret
     storageAccountKeySecret: storageAccountKeySecret
     additionalSecrets: additionalSecretsModule.outputs.secrets
     additionalVolumesAndMounts: additionalVolumesAndMounts
+
+    // Optional (until v3) Mercure Container App
+    provisionMercure: provisionMercure
+    mercureContainerAppName: mercureContainerAppName
+    mercureJwtSecretNameInKeyVault: mercureJwtSecretNameInKeyVault
 
     // Optional Portal Engine provisioning
     provisionForPortalEngine: provisionForPortalEngine
@@ -312,9 +399,11 @@ module supervisordContainerApp 'container-app-supervisord.bicep' = {
     memory: supervisordContainerAppMemory
     managedIdentityId: managedIdentity.id
     databasePasswordSecret: databasePasswordSecret
+    databaseUrlSecret: databaseUrlSecret
     storageAccountKeySecret: storageAccountKeySecret
     additionalSecrets: additionalSecretsModule.outputs.secrets
     additionalVolumesAndMounts: additionalVolumesAndMounts
+    internalIngress: supervisordContainerAppInternalIngress
 
     // Optional Portal Engine provisioning
     provisionForPortalEngine: provisionForPortalEngine
@@ -335,8 +424,55 @@ module redisContainerApp 'container-app-redis.bicep' = {
   }
 }
 
+// Optional (until v3) Opensearch Container App
+module opensearchContainerApp 'container-app-opensearch.bicep' = if (provisionOpensearch) {
+  name: 'opensearch-container-app'
+  dependsOn: [containerAppsEnvironment]
+  params: {
+    location: location
+    containerAppsEnvironmentName: containerAppsEnvironmentName
+    containerAppName: opensearchContainerAppName
+    cpuCores: opensearchContainerAppCpuCores
+    memory: opensearchContainerAppMemory
+    minReplicas: opensearchContainerAppMinReplicas
+    maxReplicas: opensearchContainerAppMaxReplicas
+    containerAppsEnvironmentStorageMountName: opensearchContainerAppsEnvironmentStorageMountName
+    storageAccountFileShareName: opensearchStorageAccountFileShareName
+    volumeName: opensearchContainerAppVolumeName
+    keyVaultName: keyVaultName
+    managedIdentityForKeyVaultId: managedIdentity.id
+    storageAccountKey: storageAccount.listKeys().keys[0].value
+    storageAccountName: storageAccountName
+    javaOpts: opensearchContainerAppJavaOpts
+    autoCreateIndex: opensearchContainerAppAutoCreateIndex
+  }
+}
+
+// Optional (until v3) Mercure Container App
+module mercureContainerApp 'container-app-mercure.bicep' = if (provisionMercure) {
+  name: 'mercure-container-app'
+  dependsOn: [containerAppsEnvironment]
+  params: {
+    location: location
+    containerAppsEnvironmentName: containerAppsEnvironmentName
+    containerAppName: mercureContainerAppName
+    cpuCores: mercureContainerAppCpuCores
+    memory: mercureContainerAppMemory
+    minReplicas: mercureContainerAppMinReplicas
+    maxReplicas: mercureContainerAppMaxReplicas
+    keyVaultName: keyVaultName
+    mercureJwtSecretNameInKeyVault: mercureJwtSecretNameInKeyVault
+    containerAppsEnvironmentStorageMountName: mercureContainerAppsEnvironmentStorageMountName
+    storageAccountFileShareName: mercureStorageAccountFileShareName
+    volumeName: mercureContainerAppVolumeName
+    managedIdentityForKeyVaultId: managedIdentity.id
+    storageAccountKey: storageAccount.listKeys().keys[0].value
+    storageAccountName: storageAccountName
+  }
+}
+
 // Optional n8n Container App
-resource n8nStorageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' existing = if (provisionN8N) {
+resource n8nStorageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = if (provisionN8N) {
   name: n8nStorageAccountName
 }
 module n8nContainerApp './container-app-n8n.bicep' = if (provisionN8N) {
@@ -381,5 +517,19 @@ module alerts './alerts/container-app-alerts.bicep' = [for containerAppName in [
   params: {
     containerAppName: containerAppName
     generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
+    responseTimeAlertThreshold: phpContainerAppResponseTimeAlertThreshold
+    responseTimeAlertTimeWindow: phpContainerAppResponseTimeAlertTimeWindow
   }
-}] 
+}]
+
+// Optional n8n metric alerts
+module n8nAlerts './alerts/container-app-alerts.bicep' = if (provisionMetricAlerts && provisionN8N) {
+  name: '${n8nContainerAppName}-alerts'
+  dependsOn: [n8nContainerApp]
+  params: {
+    containerAppName: n8nContainerAppName
+    generalMetricAlertsActionGroupName: generalMetricAlertsActionGroupName
+    responseTimeAlertThreshold: n8nContainerAppResponseTimeAlertThreshold
+    responseTimeAlertTimeWindow: n8nContainerAppResponseTimeAlertTimeWindow
+  }
+}

@@ -14,16 +14,19 @@ param virtualNetworkName string
 param virtualNetworkResourceGroupName string
 param virtualNetworkContainerAppsSubnetName string
 
-resource virtualNetwork 'Microsoft.Network/virtualNetworks@2023-09-01' existing = {
+resource virtualNetwork 'Microsoft.Network/virtualNetworks@2023-11-01' existing = {
   name: virtualNetworkName
   scope: resourceGroup(virtualNetworkResourceGroupName)
 }
-resource virtualNetworkSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-09-01' existing = {
+resource virtualNetworkSubnet 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' existing = {
   parent: virtualNetwork
   name: virtualNetworkContainerAppsSubnetName
 }
 
-resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
+resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  //checkov:skip=CKV_AZURE_43: storage account name is parameterized and validated by the calling template
+  //checkov:skip=CKV_AZURE_59: publicNetworkAccess must be Enabled for Container App VNet service endpoint volume mounts; allowBlobPublicAccess is false and defaultAction is Deny
+  //checkov:skip=CKV_AZURE_206: replication SKU is parameterized; set by the calling template based on environment requirements
   name: storageAccountName
   location: location
   sku: {
@@ -45,7 +48,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
         }
       ]
       defaultAction: 'Deny'
-      bypass: 'None'
+      bypass: 'AzureServices'
     }
     encryption: {
       services: {
