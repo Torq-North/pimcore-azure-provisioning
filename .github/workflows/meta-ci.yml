@@ -25,7 +25,7 @@ jobs:
         run: find . -type f -name '*.bicep' -print0 | xargs -0 -P0 -n1 bicep lint
 
       - name: Run Checkov SAST scan
-        uses: bridgecrewio/checkov-action@1246d92f57abae29d5db5f9aeeed2a9813e52d7d # v12
+        uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12
         env:
           CHECKOV_OUTPUT_CODE_LINE_LIMIT: 1000
           LOG_LEVEL: debug
@@ -88,14 +88,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - version: 2025.x
+          - github_environment: 2025.x
             skeleton_ref: 2025.x-azure
-          - version: 2026.x
+            parameters_file: .github/ci/parameters.2025.x.json
+          - github_environment: 2026.x
             skeleton_ref: 2026.x-azure
+            parameters_file: .github/ci/parameters.2026.x.json
     uses: ./.github/workflows/meta-ci-skeleton.yml
     with:
-      VERSION: ${{ matrix.version }}
+      GITHUB_ENVIRONMENT: ${{ matrix.github_environment }}
       SKELETON_REF: ${{ matrix.skeleton_ref }}
+      PARAMETERS_FILE: ${{ matrix.parameters_file }}
       SERVICE_PRINCIPAL_ID: ${{ vars.SERVICE_PRINCIPAL_ID }}
     secrets:
       SERVICE_PRINCIPAL_PASSWORD: ${{ secrets.SERVICE_PRINCIPAL_PASSWORD }}
