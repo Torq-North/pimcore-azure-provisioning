@@ -25,7 +25,7 @@ jobs:
         run: find . -type f -name '*.bicep' -print0 | xargs -0 -P0 -n1 bicep lint
 
       - name: Run Checkov SAST scan
-        uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12
+        uses: bridgecrewio/checkov-action@29be5868bfa968f099ae80169f61f42887494b8f # v12
         env:
           CHECKOV_OUTPUT_CODE_LINE_LIMIT: 1000
           LOG_LEVEL: debug
@@ -36,7 +36,7 @@ jobs:
           soft_fail: false
 
       - name: Set up Docker
-        uses: Torq-North/pimcore-github-actions-workflows/.github/actions/setup-docker@v7
+        uses: Torq-North/pimcore-github-actions-workflows/.github/actions/setup-docker@3811d9a4463f80a4bbb48341cddf431c1dd8555b # v7
         with:
           CONTAINER_REGISTRY: ${{ env.REGISTRY }}
           CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
@@ -55,7 +55,7 @@ jobs:
             type=semver,pattern={{major}}
 
       - name: Build Azure image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           load: true
@@ -75,7 +75,7 @@ jobs:
           severity: "CRITICAL,HIGH"
 
       - name: Push Azure image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -112,4 +112,4 @@ jobs:
     name: Update major release tag
     if: github.event_name == 'release'
     needs: [CI]
-    uses: Torq-North/github-actions-workflows/.github/workflows/update-major-release-tag.yml@v1
+    uses: Torq-North/github-actions-workflows/.github/workflows/update-major-release-tag.yml@aeaa43cbaa122bf86aff0d0a65c1f8eeb0640a00 # v1
