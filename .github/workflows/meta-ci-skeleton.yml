@@ -52,7 +52,7 @@ jobs:
   deploy-skeleton:
     name: Deploy Pimcore Skeleton to Azure Container Apps
     needs: [provision]
-    uses: Torq-North/pimcore-github-actions-workflows/.github/workflows/deploy-to-azure-container-apps.yml@v7
+    uses: Torq-North/pimcore-github-actions-workflows/.github/workflows/deploy-to-azure-container-apps.yml@8dd549eabd017b30382e04c36bfb23688cc7e8d1 # v7
     with:
       ENVIRONMENT: ${{ inputs.GITHUB_ENVIRONMENT }}
       PROJECT_REPOSITORY: Torq-North/pimcore-skeleton
